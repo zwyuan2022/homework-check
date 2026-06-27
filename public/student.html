@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>学生端 - 作业检查</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="room-bar">
+    <div class="room-code">
+      教室：<span class="code" id="roomCodeDisplay">---</span>
+    </div>
+    <div class="user-info" id="userInfo"></div>
+  </div>
+
+  <!-- 等待室（进入后未共享屏幕时） -->
+  <div class="waiting-room" id="waitingRoom">
+    <h2>✅ 已连接到教室</h2>
+    <p>请点击下方按钮共享你的屏幕，展示作业给老师</p>
+    <button class="btn-share" onclick="startScreenShare()" style="font-size:18px;padding:14px 32px;">
+      📺 共享屏幕
+    </button>
+    <p style="margin-top:16px;font-size:13px;color:#666;">
+      你可以选择共享整个屏幕或仅共享某个窗口（如作业文档）
+    </p>
+  </div>
+
+  <!-- 主视图（共享屏幕后） -->
+  <div class="student-view" id="mainView" style="display:none;">
+    <div class="student-main">
+      <!-- 自己的屏幕预览 -->
+      <div class="screen-area" id="myScreen">
+        <div class="placeholder" id="screenPlaceholder">
+          <div class="icon">📺</div>
+          <div class="hint">你的屏幕正在共享中...</div>
+        </div>
+        <video id="screenPreview" autoplay muted playsinline style="display:none;"></video>
+      </div>
+
+      <!-- 侧边栏：教师画面 + 其他同学 -->
+      <div class="sidebar" id="sidebar">
+        <div class="peer-video" id="teacherVideo">
+          <video id="teacherCam" autoplay playsinline style="width:100%;height:100%;object-fit:contain;"></video>
+          <div class="label" id="teacherLabel">老师</div>
+        </div>
+        <div id="peerScreens"></div>
+      </div>
+    </div>
+
+    <!-- 底部按钮栏 -->
+    <div class="action-bar">
+      <button class="btn-share active" id="shareBtn" onclick="stopScreenShare()">
+        ⏹ 停止共享
+      </button>
+    </div>
+  </div>
+
+  <script src="/lib/livekit-client/livekit-client.umd.js"></script>
+  <script>
+    const API_BASE = '';
+    const params = new URLSearchParams(window.location.search);
+    const roomCode = params.get('room');
+    const studentName = params.get('name');
+
+    if (!roomCode || !studentName) {
+      window.location.href = '/';
+    }
+
+    document.getElementById('roomCodeDisplay').textContent = roomCode;
+    document.getElementById('userInfo').textContent = '👤 ' + studentName;
+
+    // ---- 状态 ----
+    let room = null;
+    let screenTrack = null;
+    let subscribedScreens = new Map();  // identity -> { container, video }
+
+    // ---- 初始化 ----
+    async function init() {
+      const res = await fetch(API_BASE + '/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomCode, userName: studentName, role: 'student' }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert('加入失败: ' + data.error); return; }
+
+      room = new LivekitClient.Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
+
+      // 收到教师可见范围控制指令
+      room.on(LivekitClient.RoomEvent.DataReceived, (payload, participant) => {
+        // 只处理教师发来的消息
+        if (!participant) return;
+        try {
+          const msg = JSON.parse(new TextDecoder().decode(payload));
+          if (msg.type === 'screen_visibility') {
+            handleVisibilityChange(msg);
+          }
+        } catch (e) {
+          console.error('数据消息解析失败:', e);
+        }
+      });
+
+      // 教师摄像头画面 + 音频
+      room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+        if (publication.source === 'camera' && isTeacher(participant)) {
+          track.attach(document.getElementById('teacherCam'));
+          document.getElementById('teacherLabel').textContent = participant.name || '老师';
+        }
+        // 教师麦克风
+        if (track.kind === 'audio' && isTeacher(participant)) {
+          attachTeacherAudio(track);
+        }
+        // 其他学生的屏幕（教师允许可见后）
+        if (publication.source === 'screen_share' && !isTeacher(participant)) {
+          addPeerScreen(track, publication, participant);
+        }
+      });
+
+      room.on(LivekitClient.RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+        if (publication.source === 'screen_share' && !isTeacher(participant)) {
+          removePeerScreen(participant);
+        }
+        if (track.kind === 'audio' && isTeacher(participant)) {
+          detachTeacherAudio();
+        }
+      });
+
+      room.on(LivekitClient.RoomEvent.Disconnected, () => {
+        alert('已与服务器断开连接');
+      });
+
+      await room.connect(data.wsUrl, data.token);
+      console.log('[已连接] 学生:', studentName, '教室:', roomCode);
+
+      // 自动订阅教师的视频和音频
+      room.participants.forEach((participant) => {
+        if (isTeacher(participant)) {
+          participant.videoTracks.forEach((pub) => {
+            if (pub.source === 'camera' && pub.track) {
+              pub.track.attach(document.getElementById('teacherCam'));
+              document.getElementById('teacherLabel').textContent = participant.name || '老师';
+            }
+          });
+          participant.audioTracks.forEach((pub) => {
+            if (pub.track) {
+              attachTeacherAudio(pub.track);
+            }
+          });
+        }
+      });
+    }
+
+    // ---- 教师音频 ----
+    let teacherAudioEl = null;
+
+    function attachTeacherAudio(track) {
+      if (teacherAudioEl) {
+        try { track.detach(teacherAudioEl); } catch(e) {}
+        teacherAudioEl.remove();
+      }
+      teacherAudioEl = new Audio();
+      teacherAudioEl.autoplay = true;
+      track.attach(teacherAudioEl);
+      console.log('[音频] 已订阅教师麦克风');
+    }
+
+    function detachTeacherAudio() {
+      if (teacherAudioEl) {
+        teacherAudioEl.remove();
+        teacherAudioEl = null;
+      }
+    }
+
+    function isTeacher(participant) {
+      try {
+        const meta = JSON.parse(participant.metadata || '{}');
+        return meta.role === 'teacher';
+      } catch(e) {
+        return participant.identity && participant.identity.startsWith('teacher-');
+      }
+    }
+
+    // ---- 屏幕共享 ----
+    async function startScreenShare() {
+      try {
+        screenTrack = await room.localParticipant.setScreenShareEnabled(true);
+        await room.localParticipant.setMicrophoneEnabled(true);
+        console.log('[屏幕共享] 已开启，麦克风已开启');
+        document.getElementById('waitingRoom').style.display = 'none';
+        document.getElementById('mainView').style.display = 'flex';
+      } catch (e) {
+        if (e.name === 'NotAllowedError') {
+          alert('屏幕共享请求被拒绝。请确认你已允许屏幕录制权限。');
+        } else if (e.message && e.message.includes('getDisplayMedia')) {
+          alert('屏幕共享需要安全连接（HTTPS 或 localhost）。\n\n请使用 http://localhost:3000 访问，或配置 HTTPS。');
+        } else {
+          alert('启动屏幕共享失败: ' + e.message);
+        }
+      }
+    }
+
+    async function stopScreenShare() {
+      await room.localParticipant.setScreenShareEnabled(false);
+      await room.localParticipant.setMicrophoneEnabled(false);
+      console.log('[屏幕共享] 已停止，麦克风已关闭');
+      screenTrack = null;
+      document.getElementById('waitingRoom').style.display = 'flex';
+      document.getElementById('mainView').style.display = 'none';
+    }
+
+    // ---- 教师控制可见范围 ----
+    function handleVisibilityChange(msg) {
+      const { student, visibleToAll } = msg;
+      // 这条消息是发给所有学生的，只关心和其他学生的可见性
+      // 订阅/取消逻辑由 room 处理，这里主要是 UI 提示
+      if (visibleToAll) {
+        console.log(`📢 教师已将 ${student} 的屏幕设为全班可见`);
+      } else {
+        console.log(`🔒 教师已将 ${student} 的屏幕设为仅教师可见`);
+      }
+    }
+
+    // ---- 其他学生的屏幕画面（教师允许后会自动订阅） ----
+    function addPeerScreen(track, publication, participant) {
+      let displayName = participant.name || participant.identity;
+      if (subscribedScreens.has(participant.identity)) return;
+
+      const container = document.createElement('div');
+      container.className = 'peer-video';
+      container.id = 'peer-' + participant.sid;
+
+      const video = document.createElement('video');
+      video.autoplay = true;
+      video.playsInline = true;
+      video.style.cssText = 'width:100%;height:100%;object-fit:contain;';
+
+      const label = document.createElement('div');
+      label.className = 'label';
+      label.textContent = displayName;
+
+      track.attach(video);
+      container.appendChild(video);
+      container.appendChild(label);
+      document.getElementById('peerScreens').appendChild(container);
+
+      subscribedScreens.set(participant.identity, { container, video });
+    }
+
+    function removePeerScreen(participant) {
+      const entry = subscribedScreens.get(participant.identity);
+      if (entry) {
+        entry.container.remove();
+        subscribedScreens.delete(participant.identity);
+      }
+    }
+
+    // ---- 启动 ----
+    init().catch(e => {
+      console.error(e);
+      document.getElementById('waitingRoom').innerHTML = `
+        <h2 style="color:#ff4757;">❌ 连接失败</h2>
+        <p style="color:#888;">${e.message}</p>
+        <p style="color:#888;margin-top:8px;">请检查教室码是否正确，或联系老师</p>
+        <button class="btn-cancel" onclick="window.location.href='/'" style="margin-top:20px;">
+          返回首页
+        </button>
+      `;
+    });
+  </script>
+</body>
+</html>

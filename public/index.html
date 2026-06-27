@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>作业检查系统</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="home-page">
+    <h1>📚 作业检查系统</h1>
+    <p class="subtitle">局域网多人屏幕共享 · 教师可见范围控制</p>
+
+    <div class="role-buttons">
+      <button class="role-btn" onclick="showForm('teacher')">
+        <span class="icon">👩‍🏫</span>
+        <span>我是教师</span>
+      </button>
+      <button class="role-btn" onclick="showForm('student')">
+        <span class="icon">👨‍🎓</span>
+        <span>我是学生</span>
+      </button>
+    </div>
+
+    <!-- 教师表单 -->
+    <div class="form-card" id="teacherForm">
+      <h2>👩‍🏫 创建教室</h2>
+      <div class="field">
+        <label>您的姓名</label>
+        <input type="text" id="teacherName" placeholder="例如：张老师" autocomplete="off">
+      </div>
+      <div class="error" id="teacherError"></div>
+      <button class="btn-primary" onclick="createRoom()">创建教室并进入</button>
+    </div>
+
+    <!-- 学生表单 -->
+    <div class="form-card" id="studentForm">
+      <h2>👨‍🎓 加入教室</h2>
+      <div class="field">
+        <label>您的姓名</label>
+        <input type="text" id="studentName" placeholder="例如：张三" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>教室邀请码</label>
+        <input type="text" id="roomCode" placeholder="例如：ROOM-AB12CD34" autocomplete="off">
+      </div>
+      <div class="error" id="studentError"></div>
+      <button class="btn-primary" onclick="joinRoom()">加入教室</button>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = '';
+
+    function showForm(role) {
+      document.querySelectorAll('.form-card').forEach(el => el.classList.remove('active'));
+      document.getElementById(role + 'Form').classList.add('active');
+      document.querySelectorAll('.error').forEach(el => el.style.display = 'none');
+    }
+
+    async function createRoom() {
+      const name = document.getElementById('teacherName').value.trim();
+      const errEl = document.getElementById('teacherError');
+      if (!name) {
+        errEl.textContent = '请输入您的姓名';
+        errEl.style.display = 'block';
+        return;
+      }
+      try {
+        const res = await fetch(API_BASE + '/api/create-room', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ teacherName: name }),
+        });
+        const data = await res.json();
+        if (!res.ok) { throw new Error(data.error); }
+        // 跳转到教师端
+        window.location.href = `/teacher.html?room=${data.roomCode}&name=${encodeURIComponent(name)}`;
+      } catch (e) {
+        errEl.textContent = '创建失败: ' + e.message;
+        errEl.style.display = 'block';
+      }
+    }
+
+    async function joinRoom() {
+      const name = document.getElementById('studentName').value.trim();
+      const code = document.getElementById('roomCode').value.trim();
+      const errEl = document.getElementById('studentError');
+      if (!name || !code) {
+        errEl.textContent = '请填写姓名和邀请码';
+        errEl.style.display = 'block';
+        return;
+      }
+      window.location.href = `/student.html?room=${code}&name=${encodeURIComponent(name)}`;
+    }
+
+    // 回车键快速提交
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        if (document.getElementById('teacherForm').classList.contains('active')) createRoom();
+        if (document.getElementById('studentForm').classList.contains('active')) joinRoom();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,339 @@
+/* ========== 全局 ========== */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #0f0f1a;
+  color: #e0e0e0;
+  min-height: 100vh;
+}
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 24px;
+  font-size: 16px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+input {
+  border: 2px solid #333;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 16px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  outline: none;
+  width: 100%;
+}
+input:focus { border-color: #4a6cf7; }
+
+/* ========== 首页 ========== */
+.home-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+.home-page h1 {
+  font-size: 36px;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, #4a6cf7, #6c47ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.home-page .subtitle {
+  color: #888;
+  margin-bottom: 40px;
+  font-size: 16px;
+}
+.role-buttons {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+.role-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 30px 40px;
+  background: #1a1a2e;
+  border: 2px solid #333;
+  border-radius: 16px;
+  font-size: 18px;
+  color: #e0e0e0;
+  min-width: 160px;
+}
+.role-btn:hover {
+  border-color: #4a6cf7;
+  background: #1e1e3a;
+  transform: translateY(-2px);
+}
+.role-btn .icon { font-size: 40px; }
+.form-card {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 16px;
+  padding: 30px;
+  width: 100%;
+  max-width: 400px;
+  display: none;
+}
+.form-card.active { display: block; }
+.form-card h2 { margin-bottom: 20px; font-size: 20px; }
+.form-card .field { margin-bottom: 16px; }
+.form-card .field label { display: block; margin-bottom: 6px; color: #aaa; font-size: 14px; }
+.form-card .btn-primary {
+  width: 100%;
+  background: #4a6cf7;
+  color: #fff;
+  padding: 12px;
+  font-size: 16px;
+  margin-top: 8px;
+}
+.form-card .btn-primary:hover { background: #3a5ce5; }
+.form-card .error { color: #ff4757; font-size: 14px; margin-top: 8px; display: none; }
+
+/* ========== 教室信息栏 ========== */
+.room-bar {
+  background: #1a1a2e;
+  border-bottom: 1px solid #333;
+  padding: 12px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.room-bar .room-code {
+  font-size: 18px;
+  font-weight: bold;
+  color: #4a6cf7;
+}
+.room-bar .room-code span { color: #e0e0e0; font-weight: normal; }
+.room-bar .room-code .code { background: #2a2a4a; padding: 4px 12px; border-radius: 6px; font-family: monospace; font-size: 20px; }
+.room-bar .user-info { color: #aaa; font-size: 14px; }
+.room-bar .controls { display: flex; gap: 8px; }
+.room-bar .controls button {
+  padding: 6px 16px;
+  font-size: 14px;
+  background: #333;
+  color: #e0e0e0;
+}
+.room-bar .controls button:hover { background: #444; }
+.room-bar .controls button.active { background: #4a6cf7; }
+.room-bar .controls button.active:hover { background: #3a5ce5; }
+
+/* ========== 视频网格（教师端） ========== */
+.grid-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  padding: 16px;
+  height: calc(100vh - 60px);
+  overflow-y: auto;
+}
+.grid-container.single-view {
+  grid-template-columns: 1fr;
+  padding: 0;
+}
+.participant-card {
+  position: relative;
+  background: #1a1a2e;
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+}
+.participant-card:hover { border-color: #4a6cf7; }
+.participant-card.active { border-color: #4a6cf7; }
+.participant-card .video-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: #12122a;
+  font-size: 48px;
+  color: #555;
+}
+.participant-card video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.participant-card .info {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 8px 12px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.8));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.participant-card .info .name {
+  font-size: 14px;
+  font-weight: 500;
+}
+.participant-card .info .visibility-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.1);
+  color: #e0e0e0;
+}
+.participant-card .info .visibility-btn:hover { background: rgba(255,255,255,0.2); }
+.participant-card .info .visibility-btn.public {
+  background: #4a6cf7;
+  color: #fff;
+}
+.participant-card .info .visibility-btn.public:hover { background: #3a5ce5; }
+.participant-card .info .status {
+  font-size: 11px;
+  color: #888;
+}
+.participant-card .info .status .dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+.participant-card .info .status .dot.sharing { background: #2ed573; }
+.participant-card .info .status .dot.idle { background: #888; }
+
+/* ========== 全屏查看（点击放大） ========== */
+.fullscreen-view {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #000;
+  z-index: 100;
+}
+.fullscreen-view.active { display: flex; align-items: center; justify-content: center; }
+.fullscreen-view video {
+  max-width: 100%;
+  max-height: 100%;
+}
+.fullscreen-view .close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  padding: 8px 20px;
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  font-size: 16px;
+  border-radius: 8px;
+}
+
+/* ========== 学生端 ========== */
+.student-view {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+.student-main {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+}
+.student-main .screen-area {
+  flex: 1;
+  background: #1a1a2e;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-height: 300px;
+}
+.student-main .screen-area video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 12px;
+}
+.student-main .screen-area .placeholder {
+  text-align: center;
+  color: #666;
+}
+.student-main .screen-area .placeholder .icon { font-size: 48px; margin-bottom: 12px; }
+.student-main .screen-area .placeholder .hint { font-size: 14px; }
+.student-main .sidebar {
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.student-main .sidebar .peer-video {
+  background: #1a1a2e;
+  border-radius: 8px;
+  overflow: hidden;
+  aspect-ratio: 16/10;
+  position: relative;
+}
+.student-main .sidebar .peer-video video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.student-main .sidebar .peer-video .label {
+  position: absolute;
+  bottom: 4px;
+  left: 8px;
+  font-size: 12px;
+  color: #aaa;
+  background: rgba(0,0,0,0.6);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* ========== 按钮栏 ========== */
+.action-bar {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px;
+  background: #1a1a2e;
+  border-top: 1px solid #333;
+}
+.action-bar button {
+  padding: 10px 20px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-share { background: #2ed573; color: #fff; }
+.btn-share:hover { background: #26bf62; }
+.btn-share.active { background: #ff4757; }
+.btn-share.active:hover { background: #e83d4f; }
+.btn-cancel { background: #333; color: #e0e0e0; }
+.btn-cancel:hover { background: #444; }
+
+/* ========== 等待室（学生端共享屏幕前） ========== */
+.waiting-room {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  text-align: center;
+  padding: 20px;
+}
+.waiting-room h2 { margin-bottom: 12px; }
+.waiting-room p { color: #888; margin-bottom: 24px; }
+
+/* ========== 滚动条 ========== */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0f0f1a; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #555; }

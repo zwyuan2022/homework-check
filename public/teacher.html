@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>教师端 - 作业检查</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="room-bar" id="roomBar">
+    <div class="room-code">
+      教室：<span class="code" id="roomCodeDisplay">---</span>
+      <span style="margin-left:12px;font-size:14px;color:#888;">邀请学生输入此码</span>
+    </div>
+    <div class="controls">
+      <button id="micBtn" class="active" onclick="toggleMic()">🎤 麦克风</button>
+      <button onclick="copyInvite()">📋 复制邀请信息</button>
+    </div>
+  </div>
+
+  <!-- 视频网格 -->
+  <div class="grid-container" id="grid"></div>
+
+  <!-- 全屏查看 -->
+  <div class="fullscreen-view" id="fullscreenView" onclick="closeFullscreen(event)">
+    <button class="close-btn" onclick="closeFullscreen()">✕ 关闭</button>
+  </div>
+
+  <script src="/lib/livekit-client/livekit-client.umd.js"></script>
+  <script>
+    const API_BASE = '';
+    const params = new URLSearchParams(window.location.search);
+    const roomCode = params.get('room');
+    const teacherName = params.get('name');
+
+    if (!roomCode || !teacherName) {
+      window.location.href = '/';
+    }
+
+    // ---- 状态 ----
+    let room = null;
+    let micEnabled = true;
+    let participantCards = new Map();  // sid -> card element
+
+    // ---- 初始化 ----
+    document.getElementById('roomCodeDisplay').textContent = roomCode;
+
+    async function init() {
+      // 1. 获取令牌
+      const res = await fetch(API_BASE + '/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomCode, userName: teacherName, role: 'teacher' }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert('获取令牌失败: ' + data.error); return; }
+
+      // 2. 连接 LiveKit
+      room = new LivekitClient.Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
+
+      room.on(LivekitClient.RoomEvent.ParticipantConnected, (participant) => {
+        console.log('[加入]', participant.identity);
+        addParticipantCard(participant);
+      });
+
+      room.on(LivekitClient.RoomEvent.ParticipantDisconnected, (participant) => {
+        console.log('[离开]', participant.identity);
+        removeParticipantCard(participant);
+      });
+
+      room.on(LivekitClient.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+        console.log('[轨道订阅]', participant.identity, track.kind, publication.source);
+        if (publication.source === 'screen_share') {
+          attachTrack(track, participant);
+        }
+        if (track.kind === 'audio') {
+          attachAudioTrack(track, participant);
+        }
+      });
+
+      room.on(LivekitClient.RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+        if (track.kind === 'video') {
+          detachTrack(track, participant);
+        }
+        if (track.kind === 'audio') {
+          detachAudioTrack(track, participant);
+        }
+      });
+
+      room.on(LivekitClient.RoomEvent.Disconnected, () => {
+        document.getElementById('grid').innerHTML = '<div style="text-align:center;padding:40px;color:#888;">已断开连接</div>';
+      });
+
+      room.on(LivekitClient.RoomEvent.MediaDevicesError, (e) => {
+        console.error('媒体设备错误:', e);
+      });
+
+      await room.connect(data.wsUrl, data.token);
+      console.log('[已连接] 教室:', roomCode);
+
+      // 3. 为已存在的参与者添加卡片
+      room.participants.forEach((participant) => {
+        addParticipantCard(participant);
+      });
+
+    }
+
+    // ---- 参与者卡片 ----
+    function addParticipantCard(participant) {
+      if (participantCards.has(participant.sid)) return;
+
+      const card = document.createElement('div');
+      card.className = 'participant-card';
+      card.dataset.sid = participant.sid;
+
+      // 获取显示名
+      let displayName = participant.name || participant.identity;
+      try {
+        const meta = JSON.parse(participant.metadata || '{}');
+        if (meta.displayName) displayName = meta.displayName;
+      } catch(e) {}
+
+      card.innerHTML = `
+        <div class="video-placeholder" id="placeholder-${participant.sid}">
+          ${displayName.charAt(0)}
+        </div>
+        <video id="video-${participant.sid}" autoplay muted playsinline style="display:none;"></video>
+        <div class="info">
+          <span class="name">${displayName}</span>
+          <button class="visibility-btn" id="vis-${participant.sid}"
+                  onclick="event.stopPropagation();toggleVisibility('${participant.sid}')">
+            🔒 仅教师
+          </button>
+        </div>
+      `;
+
+      card.addEventListener('click', () => showFullscreen(participant.sid));
+      document.getElementById('grid').appendChild(card);
+      participantCards.set(participant.sid, card);
+    }
+
+    function removeParticipantCard(participant) {
+      const card = participantCards.get(participant.sid);
+      if (card) {
+        card.remove();
+        participantCards.delete(participant.sid);
+      }
+    }
+
+    // ---- 视频轨道 ----
+    function attachTrack(track, participant) {
+      const videoEl = document.getElementById('video-' + participant.sid);
+      const placeholder = document.getElementById('placeholder-' + participant.sid);
+      if (!videoEl) return;
+
+      if (track.kind === 'video') {
+        track.attach(videoEl);
+        videoEl.style.display = 'block';
+        if (placeholder) placeholder.style.display = 'none';
+      }
+    }
+
+    function detachTrack(track, participant) {
+      const videoEl = document.getElementById('video-' + participant.sid);
+      if (videoEl) {
+        track.detach(videoEl);
+        videoEl.style.display = 'none';
+      }
+      const placeholder = document.getElementById('placeholder-' + participant.sid);
+      if (placeholder) placeholder.style.display = 'flex';
+    }
+
+    // ---- 音频轨道 ----
+    let audioElements = new Map();  // sid -> Audio element
+
+    function attachAudioTrack(track, participant) {
+      try {
+        const audioEl = new Audio();
+        audioEl.autoplay = true;
+        track.attach(audioEl);
+        audioElements.set(participant.sid, audioEl);
+        console.log('[音频] 已订阅', participant.identity);
+      } catch(e) {
+        console.error('[音频] 订阅失败', participant.identity, e);
+      }
+    }
+
+    function detachAudioTrack(track, participant) {
+      const audioEl = audioElements.get(participant.sid);
+      if (audioEl) {
+        track.detach(audioEl);
+        audioEl.remove();
+        audioElements.delete(participant.sid);
+        console.log('[音频] 已取消', participant.identity);
+      }
+    }
+
+    // ---- 可见范围控制（DataChannel 广播） ----
+    const visibilityState = new Map();  // sid -> boolean (true=全班可见)
+
+    async function toggleVisibility(sid) {
+      const isPublic = !visibilityState.get(sid);
+      visibilityState.set(sid, isPublic);
+
+      const btn = document.getElementById('vis-' + sid);
+      const participant = room.participants.get(sid);
+      if (!participant) return;
+
+      const identity = participant.identity;
+      btn.textContent = isPublic ? '🌍 全班可见' : '🔒 仅教师';
+      btn.className = 'visibility-btn' + (isPublic ? ' public' : '');
+
+      // 通过 DataChannel 广播到所有学生
+      await room.localParticipant.publishData(
+        new TextEncoder().encode(JSON.stringify({
+          type: 'screen_visibility',
+          student: identity,
+          visibleToAll: isPublic,
+        })),
+        { reliable: true }
+      );
+      console.log('[可见范围]', identity, isPublic ? '→ 全班可见' : '→ 仅教师');
+    }
+
+    // ---- 全屏查看 ----
+    let fullscreenSid = null;
+
+    function showFullscreen(sid) {
+      const card = document.querySelector(`.participant-card[data-sid="${sid}"]`);
+      const video = document.getElementById('video-' + sid);
+
+      if (video && video.style.display !== 'none') {
+        // 优先使用浏览器原生全屏 API（MediaStream 不会中断）
+        if (video.requestFullscreen) {
+          video.requestFullscreen().catch(() => { /* 降级到自定义全屏 */ });
+          return;
+        }
+      }
+
+      // 降级方案：自定义全屏（移动 video 元素而非克隆，保证 MediaStream 不断）
+      fullscreenSid = sid;
+      const view = document.getElementById('fullscreenView');
+      view.innerHTML = '<button class="close-btn" onclick="closeFullscreen()">✕ 关闭</button>';
+
+      if (video && video.style.display !== 'none') {
+        video.style.maxWidth = '100%';
+        video.style.maxHeight = '100%';
+        video.muted = false;
+        view.appendChild(video);  // 移动原视频（非克隆），保留 MediaStream
+      } else {
+        view.innerHTML += '<div style="color:#888;font-size:18px;">该学生尚未共享屏幕</div>';
+      }
+
+      view.classList.add('active');
+      if (card) card.classList.add('active');
+      document.getElementById('grid').style.display = 'none';
+    }
+
+    function closeFullscreen(e) {
+      if (e && e.target !== e.currentTarget) return;
+
+      // 如果正在浏览器原生全屏中，先退出
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+
+      // 把移动走的视频元素放回原卡片
+      if (fullscreenSid) {
+        const video = document.getElementById('video-' + fullscreenSid);
+        const card = document.querySelector(`.participant-card[data-sid="${fullscreenSid}"]`);
+        if (video && card) {
+          video.style.maxWidth = '';
+          video.style.maxHeight = '';
+          video.muted = true;
+          card.querySelector('.video-placeholder')?.insertAdjacentElement?.('afterend', video);
+          card.insertBefore(video, card.querySelector('.info'));
+          card.classList.remove('active');
+        }
+      }
+
+      document.getElementById('fullscreenView').classList.remove('active');
+      document.getElementById('fullscreenView').innerHTML = '<button class="close-btn" onclick="closeFullscreen()">✕ 关闭</button>';
+      document.getElementById('grid').style.display = '';
+      fullscreenSid = null;
+    }
+
+    // 监听浏览器原生全屏退出
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement && fullscreenSid === null) {
+        // 用户按 ESC 退出原生全屏，无需额外处理
+      }
+    });
+
+    // ---- 麦克风和摄像头 ----
+    async function toggleMic() {
+      micEnabled = !micEnabled;
+      const btn = document.getElementById('micBtn');
+      btn.textContent = micEnabled ? '🎤 麦克风' : '🔇 静音';
+      btn.className = micEnabled ? 'active' : '';
+      if (room) await room.localParticipant.setMicrophoneEnabled(micEnabled);
+    }
+
+    // ---- 复制邀请信息 ----
+    async function copyInvite() {
+      const hostname = window.location.hostname;
+      let url;
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+        try {
+          const info = await fetch('/api/server-info').then(r => r.json());
+          url = info.preferredURL;
+        } catch (e) {
+          url = `https://${hostname}:3443`;
+        }
+      } else {
+        url = `https://${hostname}:3443`;
+      }
+      const text = `📚 作业检查系统\n\n访问地址: ${url}\n教室码: ${roomCode}\n\n使用说明:\n1. 在浏览器地址栏输入上方访问地址\n2. 遇到「您的连接不是私密连接」提示，点击「高级」→「继续前往」\n3. 在页面选择「我是学生」，输入姓名和上方教室码\n4. 进入后点击「共享屏幕」展示作业`;
+      navigator.clipboard.writeText(text).then(() => {}).catch(() => {
+        prompt('请手动复制:', text);
+      });
+    }
+
+    // ---- 启动 ----
+    init().catch(e => {
+      console.error(e);
+      document.getElementById('grid').innerHTML = `
+        <div style="grid-column:1/-1;text-align:center;padding:40px;">
+          <p style="color:#ff4757;font-size:18px;">连接失败</p>
+          <p style="color:#888;margin-top:8px;">${e.message}</p>
+          <p style="color:#888;margin-top:8px;">请确认 LiveKit Server 已启动</p>
+        </div>
+      `;
+    });
+  </script>
+</body>
+</html>
