@@ -17,12 +17,12 @@
   <!-- 等待室（进入后未共享屏幕时） -->
   <div class="waiting-room" id="waitingRoom">
     <h2>✅ 已连接到教室</h2>
-    <p>请点击下方按钮共享你的屏幕，展示作业给老师</p>
+    <p id="permissionHint" style="color:#ff4757;">请等待教师允许后再共享屏幕</p>
     <button class="btn-share" onclick="startScreenShare()" style="font-size:18px;padding:14px 32px;">
-      📺 共享屏幕
+      🔒 等待教师允许
     </button>
     <p style="margin-top:16px;font-size:13px;color:#666;">
-      你可以选择共享整个屏幕或仅共享某个窗口（如作业文档）
+      教师允许后按钮会变绿，点击即可共享
     </p>
   </div>
 
@@ -73,6 +73,7 @@
     // ---- 状态 ----
     let room = null;
     let screenTrack = null;
+    let iCanShare = false;  // 是否被教师允许共享
     let subscribedScreens = new Map();  // identity -> { container, video }
 
     // ---- 初始化 ----
@@ -90,14 +91,17 @@
         dynacast: true,
       });
 
-      // 收到教师可见范围控制指令
+      // 收到教师控制指令
       room.on(LivekitClient.RoomEvent.DataReceived, (payload, participant) => {
-        // 只处理教师发来的消息
         if (!participant) return;
         try {
           const msg = JSON.parse(new TextDecoder().decode(payload));
+          console.log('[收到DataChannel]', msg.type, msg);
           if (msg.type === 'screen_visibility') {
             handleVisibilityChange(msg);
+          } else if (msg.type === 'share_permission') {
+            console.log('[收到共享权限指令]', msg.student, msg.allowed, '我的identity:', room.localParticipant.identity);
+            handleSharePermission(msg);
           }
         } catch (e) {
           console.error('数据消息解析失败:', e);
@@ -186,6 +190,10 @@
 
     // ---- 屏幕共享 ----
     async function startScreenShare() {
+      if (!iCanShare) {
+        alert('教师尚未允许你共享屏幕。\n\n请等待教师点击「🎤 允许共享」按钮。');
+        return;
+      }
       try {
         screenTrack = await room.localParticipant.setScreenShareEnabled(true);
         await room.localParticipant.setMicrophoneEnabled(true);
@@ -212,11 +220,45 @@
       document.getElementById('mainView').style.display = 'none';
     }
 
+    // ---- 教师控制共享权限 ----
+    function handleSharePermission(msg) {
+      console.log('[handleSharePermission] 收到:', msg);
+      const { student, allowed } = msg;
+      if (!room || !room.localParticipant) {
+        console.error('[handleSharePermission] room 未就绪');
+        return;
+      }
+      const myIdentity = room.localParticipant.identity;
+      console.log('[handleSharePermission] 比较:', student, 'vs', myIdentity, student === myIdentity ? 'MATCH' : 'MISMATCH');
+      if (student !== myIdentity) return;
+
+      try {
+        iCanShare = allowed;
+        const btn = document.querySelector('.btn-share');
+        const hint = document.getElementById('permissionHint');
+
+        if (allowed) {
+          console.log('✅ 教师已允许你共享屏幕');
+          if (btn) { btn.textContent = '📺 共享屏幕'; btn.classList.add('allowed'); }
+          if (hint) { hint.textContent = '教师已允许，点击下方按钮开始共享'; hint.style.color = '#2ed573'; }
+        } else {
+          console.log('❌ 教师已取消你的共享权限');
+          if (btn) { btn.textContent = '🔒 等待教师允许'; btn.classList.remove('allowed'); }
+          if (hint) { hint.textContent = '请等待教师允许后再共享屏幕'; hint.style.color = '#ff4757'; }
+          // 如果正在共享中，自动停止
+          if (screenTrack) {
+            stopScreenShare();
+            alert('教师已取消你的共享权限，屏幕共享已停止。');
+          }
+        }
+      } catch (e) {
+        console.error('[handleSharePermission] 错误:', e);
+      }
+    }
+
     // ---- 教师控制可见范围 ----
     function handleVisibilityChange(msg) {
       const { student, visibleToAll } = msg;
-      // 这条消息是发给所有学生的，只关心和其他学生的可见性
-      // 订阅/取消逻辑由 room 处理，这里主要是 UI 提示
       if (visibleToAll) {
         console.log(`📢 教师已将 ${student} 的屏幕设为全班可见`);
       } else {

@@ -181,19 +181,30 @@ input:focus { border-color: #4a6cf7; }
   font-size: 14px;
   font-weight: 500;
 }
-.participant-card .info .visibility-btn {
+.participant-card .info .info-btns {
+  display: flex;
+  gap: 4px;
+}
+.participant-card .info .visibility-btn,
+.participant-card .info .share-permit-btn {
   padding: 4px 10px;
   font-size: 12px;
   border-radius: 4px;
   background: rgba(255,255,255,0.1);
   color: #e0e0e0;
 }
-.participant-card .info .visibility-btn:hover { background: rgba(255,255,255,0.2); }
+.participant-card .info .visibility-btn:hover,
+.participant-card .info .share-permit-btn:hover { background: rgba(255,255,255,0.2); }
 .participant-card .info .visibility-btn.public {
   background: #4a6cf7;
   color: #fff;
 }
 .participant-card .info .visibility-btn.public:hover { background: #3a5ce5; }
+.participant-card .info .share-permit-btn.active {
+  background: #2ed573;
+  color: #fff;
+}
+.participant-card .info .share-permit-btn.active:hover { background: #26bf62; }
 .participant-card .info .status {
   font-size: 11px;
   color: #888;
@@ -312,8 +323,10 @@ input:focus { border-color: #4a6cf7; }
   align-items: center;
   gap: 6px;
 }
-.btn-share { background: #2ed573; color: #fff; }
-.btn-share:hover { background: #26bf62; }
+.btn-share { background: #555; color: #ccc; }
+.btn-share:hover { background: #666; }
+.btn-share.allowed { background: #2ed573; color: #fff; }
+.btn-share.allowed:hover { background: #26bf62; }
 .btn-share.active { background: #ff4757; }
 .btn-share.active:hover { background: #e83d4f; }
 .btn-cancel { background: #333; color: #e0e0e0; }

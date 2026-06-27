@@ -68,6 +68,9 @@
 
       room.on(LivekitClient.RoomEvent.ParticipantDisconnected, (participant) => {
         console.log('[离开]', participant.identity);
+        if (currentSharer === participant.sid) {
+          currentSharer = null;
+        }
         removeParticipantCard(participant);
       });
 
@@ -130,10 +133,16 @@
         <video id="video-${participant.sid}" autoplay muted playsinline style="display:none;"></video>
         <div class="info">
           <span class="name">${displayName}</span>
-          <button class="visibility-btn" id="vis-${participant.sid}"
-                  onclick="event.stopPropagation();toggleVisibility('${participant.sid}')">
-            🔒 仅教师
-          </button>
+          <div class="info-btns">
+            <button class="share-permit-btn" id="share-${participant.sid}"
+                    onclick="event.stopPropagation();toggleSharePermission('${participant.sid}')">
+              🎤 允许共享
+            </button>
+            <button class="visibility-btn" id="vis-${participant.sid}"
+                    onclick="event.stopPropagation();toggleVisibility('${participant.sid}')">
+              🔒 仅教师
+            </button>
+          </div>
         </div>
       `;
 
@@ -198,6 +207,64 @@
       }
     }
 
+    // ---- 共享权限控制（一次只允许一个学生共享） ----
+    let currentSharer = null;  // sid of student currently allowed to share
+
+    async function toggleSharePermission(sid) {
+      const participant = room.participants.get(sid);
+      if (!participant) {
+        console.warn('[共享权限] 未找到参与者:', sid);
+        return;
+      }
+
+      const identity = participant.identity;
+      console.log('[共享权限] 切换', participant.name || identity, '当前允许者:', currentSharer);
+      const isGranted = currentSharer !== sid;
+
+      if (isGranted) {
+        // 先收回上一个学生的权限
+        if (currentSharer) {
+          await revokeSharePermission(currentSharer);
+        }
+        // 授予新权限
+        currentSharer = sid;
+        updateShareButton(sid, true);
+        await broadcastSharePermission(identity, true);
+      } else {
+        // 取消当前权限
+        currentSharer = null;
+        updateShareButton(sid, false);
+        await broadcastSharePermission(identity, false);
+      }
+    }
+
+    async function revokeSharePermission(sid) {
+      const participant = room.participants.get(sid);
+      if (!participant) return;
+      updateShareButton(sid, false);
+      await broadcastSharePermission(participant.identity, false);
+    }
+
+    function updateShareButton(sid, granted) {
+      const btn = document.getElementById('share-' + sid);
+      if (btn) {
+        btn.textContent = granted ? '🎤 共享中' : '🎤 允许共享';
+        btn.className = 'share-permit-btn' + (granted ? ' active' : '');
+      }
+    }
+
+    async function broadcastSharePermission(studentIdentity, allowed) {
+      await room.localParticipant.publishData(
+        new TextEncoder().encode(JSON.stringify({
+          type: 'share_permission',
+          student: studentIdentity,
+          allowed: allowed,
+        })),
+        LivekitClient.DataPacket_Kind.RELIABLE
+      );
+      console.log('[共享权限]', studentIdentity, allowed ? '✅ 允许' : '❌ 禁止');
+    }
+
     // ---- 可见范围控制（DataChannel 广播） ----
     const visibilityState = new Map();  // sid -> boolean (true=全班可见)
 
@@ -220,7 +287,7 @@
           student: identity,
           visibleToAll: isPublic,
         })),
-        { reliable: true }
+        LivekitClient.DataPacket_Kind.RELIABLE
       );
       console.log('[可见范围]', identity, isPublic ? '→ 全班可见' : '→ 仅教师');
     }
