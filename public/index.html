@@ -11,12 +11,12 @@
     <h1>📚 作业检查系统</h1>
     <p class="subtitle">局域网多人屏幕共享 · 教师可见范围控制</p>
 
-    <div class="role-buttons">
-      <button class="role-btn" onclick="showForm('teacher')">
+    <div class="role-buttons" id="roleButtons">
+      <button class="role-btn" id="teacherRoleBtn" onclick="showForm('teacher')">
         <span class="icon">👩‍🏫</span>
         <span>我是教师</span>
       </button>
-      <button class="role-btn" onclick="showForm('student')">
+      <button class="role-btn" id="studentRoleBtn" onclick="showForm('student')">
         <span class="icon">👨‍🎓</span>
         <span>我是学生</span>
       </button>
@@ -28,6 +28,10 @@
       <div class="field">
         <label>您的姓名</label>
         <input type="text" id="teacherName" placeholder="例如：张老师" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>教室码（留空自动生成）</label>
+        <input type="text" id="customRoomCode" placeholder="例如：MATH-01，留空则自动生成" autocomplete="off">
       </div>
       <div class="error" id="teacherError"></div>
       <button class="btn-primary" onclick="createRoom()">创建教室并进入</button>
@@ -52,6 +56,17 @@
   <script>
     const API_BASE = '';
 
+    // 自动判断角色：localhost 访问 → 教师，其他 IP 访问 → 学生
+    const hostname = window.location.hostname;
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    const defaultRole = isLocalhost ? 'teacher' : 'student';
+
+    // 页面加载时自动显示对应表单，隐藏另一角色按钮
+    (function() {
+      document.getElementById(defaultRole === 'teacher' ? 'studentRoleBtn' : 'teacherRoleBtn').style.display = 'none';
+      showForm(defaultRole);
+    })();
+
     function showForm(role) {
       document.querySelectorAll('.form-card').forEach(el => el.classList.remove('active'));
       document.getElementById(role + 'Form').classList.add('active');
@@ -60,6 +75,7 @@
 
     async function createRoom() {
       const name = document.getElementById('teacherName').value.trim();
+      const customCode = document.getElementById('customRoomCode').value.trim();
       const errEl = document.getElementById('teacherError');
       if (!name) {
         errEl.textContent = '请输入您的姓名';
@@ -70,7 +86,7 @@
         const res = await fetch(API_BASE + '/api/create-room', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ teacherName: name }),
+          body: JSON.stringify({ teacherName: name, roomCode: customCode || undefined }),
         });
         const data = await res.json();
         if (!res.ok) { throw new Error(data.error); }

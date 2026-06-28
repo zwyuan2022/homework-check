@@ -63,12 +63,27 @@ app.get('/api/server-info', (req, res) => {
 });
 
 app.post('/api/create-room', (req, res) => {
-  const { teacherName } = req.body;
+  const { teacherName, roomCode: customCode } = req.body;
   if (!teacherName) {
     return res.status(400).json({ error: '请输入教师姓名' });
   }
-  const roomId = uuidv4().slice(0, 8).toUpperCase();
-  const roomCode = `ROOM-${roomId}`;
+
+  let roomCode;
+  if (customCode) {
+    // 教师自定义教室码
+    if (!/^[A-Za-z0-9一-鿿_-]{1,20}$/.test(customCode)) {
+      return res.status(400).json({ error: '教室码只能包含字母、数字、中文、下划线和连字符，长度 1-20' });
+    }
+    if (rooms.has(customCode)) {
+      return res.status(400).json({ error: '该教室码已被使用，请换一个' });
+    }
+    roomCode = customCode;
+  } else {
+    // 自动生成
+    const roomId = uuidv4().slice(0, 8).toUpperCase();
+    roomCode = `ROOM-${roomId}`;
+  }
+
   rooms.set(roomCode, {
     code: roomCode,
     teacher: teacherName,
